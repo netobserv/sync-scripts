@@ -89,7 +89,7 @@ for repo in "${repos[@]}"; do
 done
 
 echo ""
-echo "Bumping branches \"downstream/$target\" to $x.$y.$z"
+echo "Bump branches \"downstream/$target\" to $x.$y.$z"
 
 if [[ $yes_mode != 1 ]]; then
   read -p "Continue? [yN] " yn
@@ -115,7 +115,7 @@ check_tekton_file_names() {
       echo "  WARNING: both ystream and zstream tekton files found; deleting ystream."
       rm ${tekton_y}
     else
-      echo "  Moving tekton ystream to stream."
+      echo "  Moving tekton ystream to zstream."
       mv ${tekton_y} ${tekton_z}
     fi
   fi
@@ -144,7 +144,9 @@ bump_and_push() {
   oldy=`echo ${old} | cut -d . -f2`
   oldz=`echo ${old} | cut -d . -f3`
   nextz="$((oldz+1))"
-  if [[ "$oldx" != "$x" || "$oldy" != "$y" || "$nextz" != "$z" ]]; then
+  if [[ "$oldx" == "$x" && "$oldy" == "$y" && "$oldz" == "$z" ]]; then
+    echo "${repo}: same version detected; assuming you're just re-running the script? That's ok."
+  elif [[ "$oldx" != "$x" || "$oldy" != "$y" || "$nextz" != "$z" ]]; then
     warnings+=("Skipping ${repo}: it doesn't look like a z-stream bump (old version: ${old}, new version: ${version}). Please check manually.")
     return
   fi
@@ -152,7 +154,7 @@ bump_and_push() {
   echo "  Updating ${dockerfile_args_path}..."
   sed -i -r "s/^BUILDVERSION=.+/BUILDVERSION=${x}.${y}.${z}/" ${dockerfile_args_path}
 
-  echo "  Targeting zstream in ./tekton files..."
+  echo "  Checking ./tekton files..."
   find .tekton -type f -exec sed -i -e "s/ystream/zstream/g" {} \;
   check_tekton_file_names "./.tekton/${tekton_component}-ystream-pull-request.yaml" "./.tekton/${tekton_component}-zstream-pull-request.yaml"
   check_tekton_file_names "./.tekton/${tekton_component}-ystream-push.yaml" "./.tekton/${tekton_component}-zstream-push.yaml"
@@ -170,11 +172,11 @@ bump_and_push() {
     read -p "Looks good to you, and proceed to commit and push ${target_branch}? (you can bring manual changes before answering) [yN] " yn
     echo
     if [[ ! $yn =~ ^[Yy]$ ]] ; then
-      exit 1
+      return
     fi
   fi
 
-  echo "  Commiting and pushing to ${target_branch}..."
+  echo "  Commit and push to ${target_branch}..."
   git commit --allow-empty -m "Prepare ${x}.${y}.${z}"
   git push downstream HEAD:${target_branch}
 }
