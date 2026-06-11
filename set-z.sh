@@ -5,7 +5,7 @@
 ############################################################
 show_help()
 {
-   echo "Set the z-stream version, after a release."
+   echo "Set the z-stream version after a release. Switch tekton from ystream to zstream if necessary."
    echo
    echo "Syntax: set-z.sh [-h|-y] VERSION"
    echo "Options:"
@@ -24,6 +24,7 @@ show_help()
 OPTIND=1
 yes_mode=0
 repos=(operator ebpf-agent flowlogs-pipeline console-plugin cli)
+tekton_all_cpnt=("network-observability-operator" "netobserv-ebpf-agent" "flowlogs-pipeline" "network-observability-console-plugin" "network-observability-cli")
 cp_variants=(pf4 pf5)
 
 while getopts "h?y" opt; do
@@ -106,9 +107,24 @@ print_warnings() {
 	done
 }
 
+check_tekton_file_names() {
+  local tekton_y=$1
+  local tekton_z=$2
+  if [[ -f ${tekton_y} ]]; then
+    if [[ -f ${tekton_z} ]]; then
+      echo "  WARNING: both ystream and zstream tekton files found; deleting ystream."
+      rm ${tekton_y}
+    else
+      echo "  Moving tekton ystream to stream."
+      mv ${tekton_y} ${tekton_z}
+    fi
+  fi
+}
+
 bump_and_push() {
   local repo=$1
   local target_branch=$2
+  local tekton_component=$3
   local tmp_branch="tmp-$target_branch"
 
   git checkout -B $tmp_branch downstream/$target_branch
@@ -136,6 +152,16 @@ bump_and_push() {
   echo "  Updating ${dockerfile_args_path}..."
   sed -i -r "s/^BUILDVERSION=.+/BUILDVERSION=${x}.${y}.${z}/" ${dockerfile_args_path}
 
+  echo "  Targeting zstream in ./tekton files..."
+  find .tekton -type f -exec sed -i -e "s/ystream/zstream/g" {} \;
+  check_tekton_file_names "./.tekton/${tekton_component}-ystream-pull-request.yaml" "./.tekton/${tekton_component}-zstream-pull-request.yaml"
+  check_tekton_file_names "./.tekton/${tekton_component}-ystream-push.yaml" "./.tekton/${tekton_component}-zstream-push.yaml"
+  if [[ "$repo" == "operator" ]]; then
+    # Operator also has the bundle component
+    check_tekton_file_names "./.tekton/${tekton_component}-bundle-ystream-pull-request.yaml" "./.tekton/${tekton_component}-bundle-zstream-pull-request.yaml"
+    check_tekton_file_names "./.tekton/${tekton_component}-bundle-ystream-push.yaml" "./.tekton/${tekton_component}-bundle-zstream-push.yaml"
+  fi
+
   echo "  Displaying diff..."
   git add -A
   git diff HEAD
@@ -153,17 +179,20 @@ bump_and_push() {
   git push downstream HEAD:${target_branch}
 }
 
+i_cpnt=0
 for repo in "${repos[@]}"; do
   echo -e "\n\033[1mProcessing $repo\033[0m"
   pushd $repo
-  bump_and_push $repo $target
+  tekton_cpnt=${tekton_all_cpnt[$i_cpnt]}
+  bump_and_push $repo $target $tekton_cpnt
   if [[ "$repo" == "console-plugin" ]]; then
     for variant in "${cp_variants[@]}"; do
       echo -e "\n\033[1mVariant: $variant\033[0m"
-      bump_and_push $repo $target-$variant
+      bump_and_push $repo $target-$variant $tekton_cpnt-$variant
     done
   fi
   popd
+  i_cpnt="$((i_cpnt+1))"
 done
 
 print_warnings
