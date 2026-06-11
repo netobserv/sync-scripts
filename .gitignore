@@ -1,0 +1,5 @@
+cli/
+console-plugin/
+ebpf-agent/
+flowlogs-pipeline/
+operator/
