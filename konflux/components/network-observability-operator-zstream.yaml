@@ -1,0 +1,54 @@
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: Component
+metadata:
+  annotations:
+    build.appstudio.openshift.io/pipeline: '{"name":"docker-build-multi-platform-oci-ta","bundle":"latest"}'
+    git-provider: github
+    git-provider-url: https://github.com
+  name: network-observability-operator-zstream
+  namespace: ocp-network-observab-tenant
+  ownerReferences:
+  - apiVersion: appstudio.redhat.com/v1alpha1
+    kind: Application
+    name: netobserv-zstream
+    uid: ffbe23ee-eb86-4a6c-aafa-493637791920
+spec:
+  actions:
+    create-pipeline-configuration-pr: {}
+  application: netobserv-zstream
+  build-nudges-ref:
+  - network-observability-operator-bundle-zstream
+  componentName: network-observability-operator-zstream
+  containerImage: quay.io/redhat-user-workloads/ocp-network-observab-tenant/network-observability-operator-zstream
+  default-build-pipeline:
+    pull:
+      pipelineref-by-git-resolver:
+        pathInRepo: ""
+        revision: ""
+        url: ""
+      pipelinespec-from-bundle:
+        bundle: ""
+        name: ""
+    pull-and-push:
+      pipelineref-by-git-resolver:
+        pathInRepo: ""
+        revision: ""
+        url: ""
+      pipelinespec-from-bundle:
+        bundle: ""
+        name: ""
+    push:
+      pipelineref-by-git-resolver:
+        pathInRepo: ""
+        revision: ""
+        url: ""
+      pipelinespec-from-bundle:
+        bundle: ""
+        name: ""
+  repository-settings: {}
+  resources: {}
+  source:
+    git:
+      dockerfileUrl: Dockerfile.downstream
+      revision: release-1.12
+      url: https://github.com/openshift/network-observability-operator
