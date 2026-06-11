@@ -14,7 +14,17 @@ After a y-stream release, we generally prepare the next y-stream branch. Run wit
 ./new-branches.sh release-2.0 release-2.1
 ```
 
-It will create the new branches based on the old ones, and update a few things for the tekton pipeline. It does NOT sync with upstream `main` (see next section).
+It will create the new branches based on the old ones, and update a few things for the tekton pipeline. It does NOT sync with upstream `main` (see sync section below).
+
+## Bump next z-stream
+
+After any release, we need to bump that existing release branch to the next z-stream version. Run with the appropriate argument (next version):
+
+```bash
+./set-z.sh 2.0.1
+```
+
+It will bump the version env.
 
 ## Sync with upstream
 
