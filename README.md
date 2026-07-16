@@ -6,6 +6,18 @@ Run `./setup.sh`. It will clone all repos and set up the "upstream" and "downstr
 
 If you want to also have your own forks as "origin", set it up manually in each created directory (e.g. `git remote add origin git@github.com:me/flowlogs-pipeline.git`)
 
+## Non-admin users (PR mode)
+
+If you don't have push access to the downstream `openshift/*` repositories, use the `-p` flag on any command. This pushes to your fork and creates a PR instead of pushing directly to downstream:
+
+```bash
+./set-z.sh -p 2.0.1
+./sync.sh -p release-2.1
+./new-branches.sh -p release-2.0 release-2.1
+```
+
+The scripts will automatically detect your GitHub fork (even if it has a different name than the downstream repo) and create PRs against the appropriate downstream branches.
+
 ## Create new release branch
 
 After a y-stream release, we generally prepare the next y-stream branch. Run with the appropriate arguments (current / next):
@@ -41,6 +53,14 @@ WARNING: Merge failed in "operator", branch "release-2.0"; resolve conflicts, me
 ```
 
 You need to resolve them manually, finish the pending merge with `git merge --continue`, then push with something like `git push downstream HEAD:release-2.1`.
+
+## Project structure
+
+- `common.sh` — shared definitions (repo arrays, helpers) sourced by all scripts
+- `setup.sh` — initial clone and remote setup
+- `set-z.sh` — bump z-stream version after a release
+- `new-branches.sh` — create new release branches
+- `sync.sh` — sync downstream from upstream
 
 ### Common conflicts
 
