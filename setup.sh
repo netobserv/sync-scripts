@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source "$(dirname "$0")/common.sh"
+
 ############################################################
 # Help                                                     #
 ############################################################
@@ -44,45 +46,17 @@ fi
 
 echo "Cloning and setting up repositories in current directory."
 
-if [[ $yes_mode != 1 ]]; then
-  read -p "Continue? [yN] " yn
-  echo
-  if [[ ! $yn =~ ^[Yy]$ ]] ; then
-    exit 1
-  fi
-fi
+confirm || exit 1
 
-git clone -o upstream git@github.com:netobserv/network-observability-operator.git operator
-pushd operator
-git remote add downstream git@github.com:openshift/network-observability-operator.git
-git fetch upstream
-git fetch downstream
-popd
-
-git clone -o upstream git@github.com:netobserv/netobserv-ebpf-agent.git ebpf-agent
-pushd ebpf-agent
-git remote add downstream git@github.com:openshift/network-observability-ebpf-agent.git
-git fetch upstream
-git fetch downstream
-popd
-
-git clone -o upstream git@github.com:netobserv/flowlogs-pipeline.git flowlogs-pipeline
-pushd flowlogs-pipeline
-git remote add downstream git@github.com:openshift/network-observability-flowlogs-pipeline.git
-git fetch upstream
-git fetch downstream
-popd
-
-git clone -o upstream git@github.com:netobserv/netobserv-web-console.git console-plugin
-pushd console-plugin
-git remote add downstream git@github.com:openshift/network-observability-console-plugin.git
-git fetch upstream
-git fetch downstream
-popd
-
-git clone -o upstream git@github.com:netobserv/netobserv-cli.git cli
-pushd cli
-git remote add downstream git@github.com:openshift/network-observability-cli.git
-git fetch upstream
-git fetch downstream
-popd
+i=0
+for repo in "${repos[@]}"; do
+  upstream="${upstream_repos[$i]}"
+  downstream="${downstream_repos[$i]}"
+  git clone -o upstream "git@github.com:netobserv/${upstream}.git" "$repo"
+  pushd "$repo"
+  git remote add downstream "git@github.com:openshift/${downstream}.git"
+  git fetch upstream
+  git fetch downstream
+  popd
+  i="$((i+1))"
+done

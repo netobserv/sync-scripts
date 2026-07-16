@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source "$(dirname "$0")/common.sh"
+
 ############################################################
 # Help                                                     #
 ############################################################
@@ -7,27 +9,27 @@ show_help()
 {
    echo "Set the z-stream version after a release. Switch tekton from ystream to zstream if necessary."
    echo
-   echo "Syntax: set-z.sh [-h|-y] VERSION"
+   echo "Syntax: set-z.sh [-h|-y|-p] VERSION"
    echo "Options:"
    echo "  -h         Print this help."
    echo "  -y         Yes-mode (non-interactive: proceed without asking)."
+   echo "  -p         PR-mode (push to fork and create PRs instead of pushing directly to downstream)."
    echo
    echo "Arguments:"
    echo "  VERSION    Version to set for the next z-stream."
    echo
    echo "Example:"
    echo "  ./set-z.sh 2.0.1"
+   echo "  ./set-z.sh -p 2.0.1   # for non-admin users"
    echo
 }
 
 # Reset in case getopts has been used previously in the shell.
 OPTIND=1
 yes_mode=0
-repos=(operator ebpf-agent flowlogs-pipeline console-plugin cli)
-tekton_all_cpnt=("network-observability-operator" "netobserv-ebpf-agent" "flowlogs-pipeline" "network-observability-console-plugin" "network-observability-cli")
-cp_variants=(pf4 pf5)
+pr_mode=0
 
-while getopts "h?y" opt; do
+while getopts "h?yp" opt; do
   case "$opt" in
     h|\?)
       show_help
@@ -35,6 +37,9 @@ while getopts "h?y" opt; do
       ;;
     y)
 			yes_mode=1
+      ;;
+    p)
+			pr_mode=1
       ;;
   esac
 done
@@ -60,52 +65,12 @@ y=`echo ${version} | cut -d . -f2`
 z=`echo ${version} | cut -d . -f3`
 target="release-${x}.${y}"
 
-# Sanity checks
-for repo in "${repos[@]}"; do
-  echo -e "\n\033[1mSanity check on $repo\033[0m"
-  pushd $repo
-  git fetch downstream
-  git ls-remote --exit-code --heads downstream refs/heads/$target
-  if [[ "$?" != "0" ]]; then
-    echo "Branch downstream/$target not found. Stopping here."
-    exit 1
-  fi
-  git diff HEAD --exit-code
-  if [[ "$?" != "0" ]]; then
-    echo "There are uncommited changes in $repo, commit or reset manually before running this script. Stopping here."
-    exit 1
-  fi
-  if [[ "$repo" == "console-plugin" ]]; then
-    for variant in "${cp_variants[@]}"; do
-      echo -e "\n\033[1mVariant: $variant\033[0m"
-      git ls-remote --exit-code --heads downstream refs/heads/$target-$variant
-      if [[ "$?" != "0" ]]; then
-        echo "Branch downstream/$target-$variant not found. Stopping here."
-        exit 1
-      fi
-    done
-  fi
-  popd
-done
+sanity_check_repos "$target"
 
 echo ""
 echo "Bump branches \"downstream/$target\" to $x.$y.$z"
 
-if [[ $yes_mode != 1 ]]; then
-  read -p "Continue? [yN] " yn
-  echo
-  if [[ ! $yn =~ ^[Yy]$ ]] ; then
-    exit 1
-  fi
-fi
-
-warnings=()
-
-print_warnings() {
-	for warning in "${warnings[@]}"; do
-		echo "WARNING: $warning"
-	done
-}
+confirm || exit 1
 
 check_tekton_file_names() {
   local tekton_y=$1
@@ -125,6 +90,7 @@ bump_and_push() {
   local repo=$1
   local target_branch=$2
   local tekton_component=$3
+  local downstream_repo=$4
   local tmp_branch="tmp-$target_branch"
 
   git checkout -B $tmp_branch downstream/$target_branch
@@ -134,10 +100,8 @@ bump_and_push() {
   fi
   git reset --hard downstream/$target_branch
 
-  local dockerfile_args_path="./Dockerfile-args.downstream"
-  if [[ "$repo" == "flowlogs-pipeline" ]]; then
-    dockerfile_args_path="./contrib/docker/Dockerfile-args.downstream"
-  fi
+  local dockerfile_args_path
+  dockerfile_args_path=$(get_dockerfile_args_path "$repo")
 
   old=`cat ${dockerfile_args_path} | grep "BUILDVERSION=" | sed -r 's/BUILDVERSION=(.+)/\1/'`
   oldx=`echo ${old} | cut -d . -f1`
@@ -152,10 +116,10 @@ bump_and_push() {
   fi
 
   echo "  Updating ${dockerfile_args_path}..."
-  sed -i -r "s/^BUILDVERSION=.+/BUILDVERSION=${x}.${y}.${z}/" ${dockerfile_args_path}
+  $SED -i -r "s/^BUILDVERSION=.+/BUILDVERSION=${x}.${y}.${z}/" ${dockerfile_args_path}
 
   echo "  Checking ./tekton files..."
-  find .tekton -type f -exec sed -i -e "s/ystream/zstream/g" {} \;
+  find .tekton -type f -exec $SED -i -e "s/ystream/zstream/g" {} \;
   check_tekton_file_names "./.tekton/${tekton_component}-ystream-pull-request.yaml" "./.tekton/${tekton_component}-zstream-pull-request.yaml"
   check_tekton_file_names "./.tekton/${tekton_component}-ystream-push.yaml" "./.tekton/${tekton_component}-zstream-push.yaml"
   if [[ "$repo" == "operator" ]]; then
@@ -168,17 +132,11 @@ bump_and_push() {
   git add -A
   git diff HEAD
 
-  if [[ $yes_mode != 1 ]]; then
-    read -p "Looks good to you, and proceed to commit and push ${target_branch}? (you can bring manual changes before answering) [yN] " yn
-    echo
-    if [[ ! $yn =~ ^[Yy]$ ]] ; then
-      return
-    fi
-  fi
+  confirm "Looks good to you, and proceed to commit and push ${target_branch}? (you can bring manual changes before answering)" || return
 
   echo "  Commit and push to ${target_branch}..."
   git commit --allow-empty -m "Prepare ${x}.${y}.${z}"
-  git push downstream HEAD:${target_branch}
+  push_or_pr "${downstream_repo}" "${target_branch}" "Prepare ${x}.${y}.${z}"
 }
 
 i_cpnt=0
@@ -186,11 +144,12 @@ for repo in "${repos[@]}"; do
   echo -e "\n\033[1mProcessing $repo\033[0m"
   pushd $repo
   tekton_cpnt=${tekton_all_cpnt[$i_cpnt]}
-  bump_and_push $repo $target $tekton_cpnt
+  ds_repo=${downstream_repos[$i_cpnt]}
+  bump_and_push $repo $target $tekton_cpnt $ds_repo
   if [[ "$repo" == "console-plugin" ]]; then
     for variant in "${cp_variants[@]}"; do
       echo -e "\n\033[1mVariant: $variant\033[0m"
-      bump_and_push $repo $target-$variant $tekton_cpnt-$variant
+      bump_and_push $repo $target-$variant $tekton_cpnt-$variant $ds_repo
     done
   fi
   popd
