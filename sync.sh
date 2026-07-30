@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source "$(dirname "$0")/common.sh"
+
 ############################################################
 # Help                                                     #
 ############################################################
@@ -7,17 +9,19 @@ show_help()
 {
    echo "Synchronize downstream repositories from upstream"
    echo
-   echo "Syntax: sync.sh [-h|-d|-y] TARGET"
+   echo "Syntax: sync.sh [-h|-d|-y|-p] TARGET"
    echo "Options:"
    echo "  -h         Print this help."
    echo "  -d         Dry run (do not push to remote downstream)."
    echo "  -y         Yes-mode (non-interactive: proceed without asking)."
+   echo "  -p         PR-mode (push to fork and create PRs instead of pushing directly to downstream)."
    echo
    echo "Arguments:"
    echo "  TARGET     Target downstream branch"
    echo
    echo "Example:"
    echo "  ./sync.sh release-1.12"
+   echo "  ./sync.sh -p release-1.12   # for non-admin users"
    echo
 }
 
@@ -25,10 +29,9 @@ show_help()
 OPTIND=1
 dry_run=0
 yes_mode=0
-repos=(operator ebpf-agent flowlogs-pipeline console-plugin cli)
-cp_variants=(pf4 pf5)
+pr_mode=0
 
-while getopts "h?dy" opt; do
+while getopts "h?dyp" opt; do
   case "$opt" in
     h|\?)
       show_help
@@ -39,6 +42,9 @@ while getopts "h?dy" opt; do
       ;;
     y)
 			yes_mode=1
+      ;;
+    p)
+			pr_mode=1
       ;;
   esac
 done
@@ -68,26 +74,13 @@ target="$1"
 
 echo "Synchronizing \"downstream/$target\" with \"upstream/main${dry_run_text}\". A temporary local branch named \"tmp-$target\" will be created/overwritten."
 
-if [[ $yes_mode != 1 ]]; then
-  read -p "Continue? [yN] " yn
-  echo
-  if [[ ! $yn =~ ^[Yy]$ ]] ; then
-    exit 1
-  fi
-fi
-
-warnings=()
-
-print_warnings() {
-	for warning in "${warnings[@]}"; do
-		echo "WARNING: $warning"
-	done
-}
+confirm || exit 1
 
 merge_and_push() {
   local repo=$1
   local downstream_branch=$2
   local upstream_branch=$3
+  local downstream_repo=$4
   local tmp_branch="tmp-$downstream_branch"
 
   git checkout -B $tmp_branch downstream/$downstream_branch
@@ -99,18 +92,12 @@ merge_and_push() {
   elif [[ $dry_run == 1 ]]; then
     echo "DRY RUN: skip push $tmp_branch to downstream/$downstream_branch. You can push manually if you wish."
   else
-    if [[ $yes_mode != 1 ]]; then
-      read -p "Merge done. Proceed with push? [yN] " yn
-      echo
-      if [[ ! $yn =~ ^[Yy]$ ]] ; then
-        return
-      fi
-    fi
-    # Proceed with push
-    git push downstream HEAD:$downstream_branch
+    confirm "Merge done. Proceed with push?" || return
+    push_or_pr "${downstream_repo}" "${downstream_branch}" "Sync ${downstream_branch} from upstream"
   fi
 }
 
+i_cpnt=0
 for repo in "${repos[@]}"; do
   echo -e "\n\033[1mProcessing $repo\033[0m"
   pushd $repo
@@ -121,7 +108,8 @@ for repo in "${repos[@]}"; do
     echo "Branch downstream/$target not found. Create the branches before running sync.sh. You can use new-branches.sh."
     exit 1
   fi
-  merge_and_push $repo $target main
+  ds_repo=${downstream_repos[$i_cpnt]}
+  merge_and_push $repo $target main $ds_repo
 
   if [[ "$repo" == "console-plugin" ]]; then
     for variant in "${cp_variants[@]}"; do
@@ -135,11 +123,12 @@ for repo in "${repos[@]}"; do
           echo "Branch downstream/$target-$variant not found. Create the branches before running sync.sh. You can use new-branches.sh."
           exit 1
         fi
-        merge_and_push $repo $target-$variant main-$variant
+        merge_and_push $repo $target-$variant main-$variant $ds_repo
       fi
     done
   fi
   popd
+  i_cpnt="$((i_cpnt+1))"
 done
 
 print_warnings
