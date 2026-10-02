@@ -9,12 +9,13 @@ show_help()
 {
    echo "Synchronize downstream repositories from upstream"
    echo
-   echo "Syntax: sync.sh [-h|-d|-y|-p] TARGET"
+   echo "Syntax: sync.sh [-h|-d|-y|-p] [-l log_lines] TARGET"
    echo "Options:"
-   echo "  -h         Print this help."
-   echo "  -d         Dry run (do not push to remote downstream)."
-   echo "  -y         Yes-mode (non-interactive: proceed without asking)."
-   echo "  -p         PR-mode (push to fork and create PRs instead of pushing directly to downstream)."
+   echo "  -h             Print this help."
+   echo "  -d             Dry run (do not push to remote downstream)."
+   echo "  -y             Yes-mode (non-interactive: proceed without asking)."
+   echo "  -p             PR-mode (push to fork and create PRs instead of pushing directly to downstream)."
+   echo "  -l log_lines   Number of log lines to show (default: 30)."
    echo
    echo "Arguments:"
    echo "  TARGET     Target downstream branch"
@@ -30,8 +31,9 @@ OPTIND=1
 dry_run=0
 yes_mode=0
 pr_mode=0
+log_lines=30
 
-while getopts "h?dyp" opt; do
+while getopts "h?dypl:" opt; do
   case "$opt" in
     h|\?)
       show_help
@@ -45,6 +47,9 @@ while getopts "h?dyp" opt; do
       ;;
     p)
 			pr_mode=1
+      ;;
+    l)
+      log_lines="$OPTARG"
       ;;
   esac
 done
@@ -86,12 +91,13 @@ merge_and_push() {
   git checkout -B $tmp_branch downstream/$downstream_branch
   git reset --hard downstream/$downstream_branch
 
-  git merge upstream/$upstream_branch
+  git merge --no-edit upstream/$upstream_branch
   if [[ "$?" != "0" ]]; then
  		warnings+=("Merge failed in \"$repo\", branch \"$downstream_branch\"; resolve conflicts, merge and push manually.")
   elif [[ $dry_run == 1 ]]; then
     echo "DRY RUN: skip push $tmp_branch to downstream/$downstream_branch. You can push manually if you wish."
   else
+    git log -${log_lines} --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%ad) %C(bold blue)<%an>%Creset' --abbrev-commit --abbrev=8 --date=format:'%Y-%m-%d %H:%M'
     confirm "Merge done. Proceed with push?" || return
     push_or_pr "${downstream_repo}" "${downstream_branch}" "Sync ${downstream_branch} from upstream"
   fi
